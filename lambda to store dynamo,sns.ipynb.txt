@@ -1,0 +1,59 @@
+import json
+import boto3
+from datetime import datetime, timedelta
+from decimal import Decimal  # Import Decimal class
+
+# Initialize DynamoDB client
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('eg_1')
+
+# Initialize SNS client
+sns = boto3.client('sns')
+sns_topic_arn = 'your-sns-topic-arn'  # Update with your SNS topic ARN
+
+def lambda_handler(event, context):
+    # Check if 'Records' exist in the event
+    if 'Records' in event:
+        for record in event['Records']:
+            # Adjust the time to IST (UTC + 5:30 hours)
+            current_utc_time = datetime.utcnow()
+            current_ist_time = current_utc_time + timedelta(hours=5, minutes=30)
+            
+            # Format the adjusted time as per the desired format
+            timestamp = current_ist_time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Extract message body from the SQS record
+            message_body = json.loads(record['body'])
+            
+            # Ensure that the item includes the required primary key attribute(s)
+            item = {'timestamp': timestamp}  # Use the adjusted timestamp # Add 'symbol' attribute if it exists in the message body
+            if 'symbol' in message_body:
+                item['symbol'] = message_body['symbol']
+                
+            if 'dayHigh' in message_body:
+                item['dayHigh'] = Decimal(str(message_body['dayHigh']))
+            
+            if 'dayLow' in message_body:
+                item['dayLow'] = Decimal(str(message_body['dayLow']))
+            
+            # Add 'lastPrice' attribute if it exists in the message body
+            if 'lastPrice' in message_body:
+                item['lastPrice'] = Decimal(str(message_body['lastPrice']))
+            
+            # Store the message body in DynamoDB
+            response = table.put_item(Item=item)
+            
+            # Publish the same data to SNS
+            sns_message = json.dumps(item)
+            sns_response = sns.publish(
+                TopicArn=sns_topic_arn,
+                Message=sns_message
+            )
+            print("SNS Publish Response:", sns_response)
+            
+            print(response)  # Optional: Print DynamoDB response for debugging
+            
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Messages processed successfully!')
+    }
